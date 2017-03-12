@@ -2,28 +2,34 @@
 version: '2.1'
 services:
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:5.2.2
+    build: Dockerfiles/elasticsearch
     environment: ['http.host=0.0.0.0', 'transport.host=127.0.0.1']
     ports: ['127.0.0.1:9200:9200']
     networks: ['stack']
+    volumes:
+      - "./config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml"
     # Check that Elasticsearch is responding before hitting it with real requests.
     healthcheck:
-      test: ['CMD', 'curl', '-f', '-u', 'elastic:changeme', 'http://localhost:9200']
+      test: ['CMD', 'curl', '-f', 'http://localhost:9200']
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:5.2.2
+    build: Dockerfiles/kibana
     ports: ['127.0.0.1:5601:5601']
     networks: ['stack']
     depends_on: {elasticsearch: {condition: service_healthy}}
+    volumes:
+      - ./config/kibana.yml:/usr/share/kibana/config/kibana.yml
     # Check that Kibana is responding before loading dashboards etc.
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:5601/login']
+      test: ['CMD', 'curl', '-f', 'http://localhost:5601/']
+      retries: 10
 
   logstash:
     image: docker.elastic.co/logstash/logstash:5.2.2
     # Provide a simple pipeline configuration for Logstash with a bind-mounted file.
     volumes:
       - ./config/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+      - ./config/logstash.yml:/usr/share/logstash/config/logstash.yml
     networks: ['stack']
     depends_on: {elasticsearch: {condition: service_healthy}}
 
@@ -39,6 +45,8 @@ services:
   heartbeat:
     image: docker.elastic.co/beats/heartbeat:5.2.2
     networks: ['stack']
+    volumes:
+      - "./config/heartbeat.yml:/usr/share/heatbeat/heatbeat.yml"
     depends_on: {elasticsearch: {condition: service_healthy}}
 
   metricbeat:
@@ -52,6 +60,8 @@ services:
       #- /proc:/hostfs/proc:ro
       # - /sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro
       # - /:/hostfs:ro
+    volumes:
+      - "./config/metricbeat.yml:/usr/share/metricbeat/metricbeat.yml"
     command: metricbeat -e # -system.hostfs=/hostfs
     depends_on: {elasticsearch: {condition: service_healthy}}
 
@@ -81,8 +91,6 @@ services:
         -beat ""
         -file /usr/share/metricbeat/beats-dashboards-5.2.2.zip
         -es http://elasticsearch:9200
-        -user elastic
-        -pass changeme
     depends_on: {kibana: {condition: service_healthy}}
 
   # Another short-lived container to create a Kibana index pattern for Logstash.
@@ -92,7 +100,7 @@ services:
     networks: ['stack']
     # There's currently no API for creating index patterns, so this is a bit hackish.
     command: >-
-      curl -XPUT http://elastic:changeme@elasticsearch:9200/.kibana/index-pattern/logstash-*
+      curl -XPUT http://elasticsearch:9200/.kibana/index-pattern/logstash-*
         -d '{"title" : "logstash-*",  "timeFieldName": "@timestamp"}'
     depends_on: {kibana: {condition: service_healthy}}
 
@@ -100,7 +108,7 @@ services:
     image: docker.elastic.co/beats/metricbeat:5.2.2
     networks: ['stack']
     command: >-
-      curl -XPUT http://elastic:changeme@elasticsearch:9200/.kibana/config/5.2.2
+      curl -XPUT http://elasticsearch:9200/.kibana/config/5.2.2
         -d '{"defaultIndex" : "metricbeat-*"}'
     depends_on: {kibana: {condition: service_healthy}}
 
