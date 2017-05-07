@@ -1,6 +1,22 @@
 ---
 version: '2.1'
 services:
+  # The environment variable "TAG" is used throughout this file to
+  # specify the version of the images to run. The default is set in the
+  # '.env' file in this folder. It can be overridden with any normal
+  # technique for setting environment variables, for example:
+  #
+  #   TAG=5.3.0 docker-compose up
+  #
+  # REF: https://docs.docker.com/compose/compose-file/#variable-substitution
+  #
+  # Also to be sure to set ELASTIC_VERSION variable. For released versions,
+  # ${TAG} and ${ELASTIC_VERSION} will be identical, but for pre-release
+  # versions, ${TAG} might contain an extra build identifier, like
+  # "5.4.0-a80c820b", so a full invocation might look like:
+  #
+  #   ELASTIC_VERSION=5.4.0 TAG=5.4.0-a80c820b docker-compose up
+  #
   elasticsearch:
     build: Dockerfiles/elasticsearch
     environment: ['http.host=0.0.0.0', 'transport.host=127.0.0.1']
@@ -25,16 +41,17 @@ services:
       retries: 10
 
   logstash:
-    image: docker.elastic.co/logstash/logstash:5.4.0
+    image: docker.elastic.co/logstash/logstash:${TAG}
     # Provide a simple pipeline configuration for Logstash with a bind-mounted file.
     volumes:
       - ./config/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
       - ./config/logstash.yml:/usr/share/logstash/config/logstash.yml
     networks: ['stack']
     depends_on: {elasticsearch: {condition: service_started}}
+    command: 'logstash -f /usr/share/logstash/pipeline/'
 
   filebeat:
-    image: docker.elastic.co/beats/filebeat:5.4.0
+    image: docker.elastic.co/beats/filebeat:${TAG}
     group_add: ['root', 'adm']
     # If the host system has logs at "/var/log", mount them at "/mnt/log"
     # inside the container, where Filebeat can find them.
@@ -43,14 +60,14 @@ services:
     depends_on: {elasticsearch: {condition: service_started}}
 
   heartbeat:
-    image: docker.elastic.co/beats/heartbeat:5.4.0
+    image: docker.elastic.co/beats/heartbeat:${TAG}
     networks: ['stack']
     volumes:
       - "./config/heartbeat.yml:/usr/share/heartbeat/heartbeat.yml"
     depends_on: {elasticsearch: {condition: service_started}}
 
   metricbeat:
-    image: docker.elastic.co/beats/metricbeat:5.4.0
+    image: docker.elastic.co/beats/metricbeat:${TAG}
     networks: ['stack']
     # The commented sections below enable Metricbeat to monitor the Docker host,
     # rather than the Metricbeat container. It's problematic with Docker for
@@ -66,7 +83,7 @@ services:
     depends_on: {elasticsearch: {condition: service_started}}
 
   packetbeat:
-    image: docker.elastic.co/beats/packetbeat:5.4.0
+    image: docker.elastic.co/beats/packetbeat:${TAG}
     # Packetbeat needs some elevated privileges capture network traffic.
     # We'll grant them with POSIX capabilities.
     cap_add: ['NET_RAW', 'NET_ADMIN']
@@ -84,19 +101,19 @@ services:
   # Run a short-lived container to import the default dashboards for the Beats.
   import_dashboards:
     # Any Beats image will do. We'll use Metricbeat.
-    image: docker.elastic.co/beats/metricbeat:5.4.0
+    image: docker.elastic.co/beats/metricbeat:${TAG}
     networks: ['stack']
     command: >-
       /usr/share/metricbeat/scripts/import_dashboards
         -beat ""
-        -file /usr/share/metricbeat/beats-dashboards-5.4.0.zip
+        -file /usr/share/metricbeat/beats-dashboards-${ELASTIC_VERSION}.zip
         -es http://elasticsearch:9200
     depends_on: {kibana: {condition: service_started}}
 
   # Another short-lived container to create a Kibana index pattern for Logstash.
   create_logstash_index_pattern:
     # The image just needs curl, and we know that Metricbeat has that.
-    image: docker.elastic.co/beats/metricbeat:5.4.0
+    image: docker.elastic.co/beats/metricbeat:${TAG}
     networks: ['stack']
     # There's currently no API for creating index patterns, so this is a bit hackish.
     command: >-
@@ -105,10 +122,10 @@ services:
     depends_on: {kibana: {condition: service_started}}
 
   set_default_index_pattern:
-    image: docker.elastic.co/beats/metricbeat:5.4.0
+    image: docker.elastic.co/beats/metricbeat:${TAG}
     networks: ['stack']
     command: >-
-      curl -XPUT http://elasticsearch:9200/.kibana/config/5.4.0
+      curl -XPUT http://elastic:changeme@elasticsearch:9200/.kibana/config/${ELASTIC_VERSION}
         -d '{"defaultIndex" : "metricbeat-*"}'
     depends_on: {kibana: {condition: service_started}}
 

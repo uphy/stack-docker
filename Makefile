@@ -1,26 +1,35 @@
 SHELL=/bin/bash
+
 ifndef ELASTIC_VERSION
-ELASTIC_VERSION=5.2.1
+ELASTIC_VERSION := $(shell awk 'BEGIN { FS = "[= ]" } /^ELASTIC_VERSION=/ { print $$2 }' .env)
 endif
 export ELASTIC_VERSION
 
-BRANCH=`echo $$ELASTIC_VERSION | egrep --only-matching '^[0-9]+.[0-9]+'`
+ifndef STAGING_BUILD_NUM
+STAGING_BUILD_NUM := $(shell awk 'BEGIN { FS = "[- ]" } /^TAG=/ { printf $$2 }' .env)
+endif
+export STAGING_BUILD_NUM
 
-all: elasticsearch logstash kibana beats
+ifndef BRANCH
+BRANCH := master
+endif
 
-submodules:
-	git submodule update --init --recursive
-	git submodule foreach git fetch --all
-	git submodule foreach git reset --hard origin/$(BRANCH)
+TARGETS := elasticsearch logstash kibana beats
 
-elasticsearch: submodules
-	make --directory=elasticsearch
+images: $(TARGETS)
+push: $(TARGETS:%=%-push)
+clean: $(TARGETS:%=%-clean)
 
-logstash: submodules
-	make --directory=logstash
+$(TARGETS): $(TARGETS:%=%-checkout)
+	(cd stack/$@ && make)
 
-kibana: submodules
-	make --directory=kibana
+$(TARGETS:%=%-push): $(TARGETS:%=%-checkout)
+	(cd stack/$(@:%-push=%) && make push)
 
-beats: submodules
-	make --directory=beats
+$(TARGETS:%=%-checkout):
+	test -d stack/$(@:%-checkout=%) || \
+          git clone https://github.com/elastic/$(@:%-checkout=%)-docker.git stack/$(@:%-checkout=%)
+	(cd stack/$(@:%-checkout=%) && git fetch && git reset --hard origin/$(BRANCH))
+
+$(TARGETS:%=%-clean):
+	rm -rf stack/$(@:%-clean=%)
