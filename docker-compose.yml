@@ -16,7 +16,7 @@ services:
     build: Dockerfiles/kibana
     ports: ['127.0.0.1:5601:5601']
     networks: ['stack']
-    depends_on: {elasticsearch: {condition: service_healthy}}
+    depends_on: {elasticsearch: {condition: service_started}}
     volumes:
       - ./config/kibana.yml:/usr/share/kibana/config/kibana.yml
     # Check that Kibana is responding before loading dashboards etc.
@@ -25,32 +25,32 @@ services:
       retries: 10
 
   logstash:
-    image: docker.elastic.co/logstash/logstash:5.2.2
+    image: docker.elastic.co/logstash/logstash:5.4.0
     # Provide a simple pipeline configuration for Logstash with a bind-mounted file.
     volumes:
       - ./config/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
       - ./config/logstash.yml:/usr/share/logstash/config/logstash.yml
     networks: ['stack']
-    depends_on: {elasticsearch: {condition: service_healthy}}
+    depends_on: {elasticsearch: {condition: service_started}}
 
   filebeat:
-    image: docker.elastic.co/beats/filebeat:5.2.2
+    image: docker.elastic.co/beats/filebeat:5.4.0
     group_add: ['root', 'adm']
     # If the host system has logs at "/var/log", mount them at "/mnt/log"
     # inside the container, where Filebeat can find them.
     # volumes: ['/var/log:/mnt/log:ro']
     networks: ['stack']
-    depends_on: {elasticsearch: {condition: service_healthy}}
+    depends_on: {elasticsearch: {condition: service_started}}
 
   heartbeat:
-    image: docker.elastic.co/beats/heartbeat:5.2.2
+    image: docker.elastic.co/beats/heartbeat:5.4.0
     networks: ['stack']
     volumes:
-      - "./config/heartbeat.yml:/usr/share/heatbeat/heatbeat.yml"
-    depends_on: {elasticsearch: {condition: service_healthy}}
+      - "./config/heartbeat.yml:/usr/share/heartbeat/heartbeat.yml"
+    depends_on: {elasticsearch: {condition: service_started}}
 
   metricbeat:
-    image: docker.elastic.co/beats/metricbeat:5.2.2
+    image: docker.elastic.co/beats/metricbeat:5.4.0
     networks: ['stack']
     # The commented sections below enable Metricbeat to monitor the Docker host,
     # rather than the Metricbeat container. It's problematic with Docker for
@@ -63,10 +63,10 @@ services:
     volumes:
       - "./config/metricbeat.yml:/usr/share/metricbeat/metricbeat.yml"
     command: metricbeat -e # -system.hostfs=/hostfs
-    depends_on: {elasticsearch: {condition: service_healthy}}
+    depends_on: {elasticsearch: {condition: service_started}}
 
   packetbeat:
-    image: docker.elastic.co/beats/packetbeat:5.2.2
+    image: docker.elastic.co/beats/packetbeat:5.4.0
     # Packetbeat needs some elevated privileges capture network traffic.
     # We'll grant them with POSIX capabilities.
     cap_add: ['NET_RAW', 'NET_ADMIN']
@@ -79,37 +79,37 @@ services:
     # hostname "elasticsearch". Instead, we'll tell it to find Elasticsearch
     # on "localhost", which is the Docker host machine in this context.
     command: packetbeat -v -e -E output.elasticsearch.hosts='["localhost:9200"]'
-    depends_on: {elasticsearch: {condition: service_healthy}}
+    depends_on: {elasticsearch: {condition: service_started}}
 
   # Run a short-lived container to import the default dashboards for the Beats.
   import_dashboards:
     # Any Beats image will do. We'll use Metricbeat.
-    image: docker.elastic.co/beats/metricbeat:5.2.2
+    image: docker.elastic.co/beats/metricbeat:5.4.0
     networks: ['stack']
     command: >-
       /usr/share/metricbeat/scripts/import_dashboards
         -beat ""
-        -file /usr/share/metricbeat/beats-dashboards-5.2.2.zip
+        -file /usr/share/metricbeat/beats-dashboards-5.4.0.zip
         -es http://elasticsearch:9200
-    depends_on: {kibana: {condition: service_healthy}}
+    depends_on: {kibana: {condition: service_started}}
 
   # Another short-lived container to create a Kibana index pattern for Logstash.
   create_logstash_index_pattern:
     # The image just needs curl, and we know that Metricbeat has that.
-    image: docker.elastic.co/beats/metricbeat:5.2.2
+    image: docker.elastic.co/beats/metricbeat:5.4.0
     networks: ['stack']
     # There's currently no API for creating index patterns, so this is a bit hackish.
     command: >-
       curl -XPUT http://elasticsearch:9200/.kibana/index-pattern/logstash-*
         -d '{"title" : "logstash-*",  "timeFieldName": "@timestamp"}'
-    depends_on: {kibana: {condition: service_healthy}}
+    depends_on: {kibana: {condition: service_started}}
 
   set_default_index_pattern:
-    image: docker.elastic.co/beats/metricbeat:5.2.2
+    image: docker.elastic.co/beats/metricbeat:5.4.0
     networks: ['stack']
     command: >-
-      curl -XPUT http://elasticsearch:9200/.kibana/config/5.2.2
+      curl -XPUT http://elasticsearch:9200/.kibana/config/5.4.0
         -d '{"defaultIndex" : "metricbeat-*"}'
-    depends_on: {kibana: {condition: service_healthy}}
+    depends_on: {kibana: {condition: service_started}}
 
 networks: {stack: {}}
